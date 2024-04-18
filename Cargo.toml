@@ -15,5 +15,5 @@ path = "src/main.rs"
 
 [dependencies]
 futures = "0.3.30"
-noodles = { version = "0.66.0", features = ["vcf", "async"] }
+rust-htslib = "0.46.0"
 tokio = { version = "1.36.0", features = ["full"] }
