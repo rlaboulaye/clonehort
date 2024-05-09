@@ -1,18 +1,23 @@
-use rust_htslib::bcf::{Reader, Read};
+use rust_htslib::bcf::{Read, Reader};
 use std::convert::TryFrom;
+
+mod compare;
+
+pub use compare::perform_comparison;
 
 pub fn read(path: &str) {
     let mut vcf = Reader::from_path(path).expect("Error opening file.");
     // iterate through each row of the vcf body.
-    for (i, record_result) in vcf.records().enumerate() {
-        let mut record = record_result.expect("Fail to read record");
+    for (_i, record_result) in vcf.records().enumerate() {
+        // let mut record = record_result.expect("Fail to read record");
+        let record = record_result.expect("Fail to read record");
         let mut s = String::new();
-         for allele in record.alleles() {
-             for c in allele {
-                 s.push(char::from(*c))
-             }
-             s.push(' ')
-         }
+        for allele in record.alleles() {
+            for c in allele {
+                s.push(char::from(*c))
+            }
+            s.push(' ')
+        }
         // 0-based position and the list of alleles
         println!("Locus: {}, Alleles: {}", record.pos(), s);
         // number of sample in the vcf
@@ -43,7 +48,7 @@ mod tests {
 
     #[test]
     fn it_works() {
-//        read();
-//        assert_eq!(result, Ok(()));
+        //        read();
+        //        assert_eq!(result, Ok(()));
     }
 }
