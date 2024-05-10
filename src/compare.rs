@@ -75,7 +75,7 @@ fn process_fb(
     labels: &Vec<Vec<u8>>,
     threshold: Option<f32>,
 ) -> Result<Vec<Vec<bool>>> {
-    let mut filter: Arc<Mutex<Vec<Vec<bool>>>> =
+    let filter: Arc<Mutex<Vec<Vec<bool>>>> =
         Arc::new(Mutex::new(vec![vec![true; indices.len()]; windows.len()]));
 
     let index_set: HashSet<usize> = indices.iter().cloned().collect();
@@ -91,28 +91,41 @@ fn process_fb(
         .split('\t')
         .count()
         - 1;
+    // Drop second line
+    lines.next();
 
     rayon::scope(|scope| {
         let mut window_counter: usize = 0;
-        let mut line_block: Vec<Box<dyn Iterator<Item = &str> + Send>> = vec![];
-        let line = lines.skip(1).next();
+        let mut line_block: Vec<String> = vec![];
 
-        while let Some(line) = line {
-            let line = line.unwrap();
-            let mut split_line = line.trim().split('\t').skip(1);
-            let pos = split_line.next().unwrap().parse::<u32>().unwrap();
+        // Shadowing
+        let index_set = &index_set;
+        let filter = &filter;
+
+        while let Some(line) = lines.next() {
+            let pos = line
+                .as_ref()
+                .unwrap()
+                .trim()
+                .split('\t')
+                .skip(1)
+                .next()
+                .unwrap()
+                .parse::<u32>()
+                .unwrap();
             if pos > windows[window_counter][1] {
-                scope.spawn(|_| {
-                    let row_index = window_counter;
-                    let line_block = line_block;
+                scope.spawn(move |_| {
                     let (prob_sums, row_count) = line_block
                         .into_iter()
                         .map(|line| {
-                            line.enumerate()
+                            line.trim()
+                                .split('\t')
+                                .skip(4)
+                                .enumerate()
                                 .filter(|(i, _)| {
                                     index_set.contains(&(i / n_label_types))
                                         && i % n_label_types
-                                            == labels[row_index][i / n_label_types] as usize
+                                            == labels[window_counter][i / n_label_types] as usize
                                 })
                                 .map(|(_, val)| val.parse::<f32>().unwrap_or(f32::MIN))
                                 .collect::<Vec<f32>>()
@@ -130,26 +143,25 @@ fn process_fb(
                     let mut filter_matrix = filter.lock().unwrap();
                     for (i, prob_sum) in prob_sums.iter().enumerate() {
                         if *prob_sum / row_count as f32 >= threshold.unwrap_or(0f32) {
-                            filter_matrix[row_index][i] = true;
+                            filter_matrix[window_counter][i] = true;
                         } else {
-                            filter_matrix[row_index][i] = false;
+                            filter_matrix[window_counter][i] = false;
                         }
                     }
                 });
                 line_block = vec![];
-                line_block.push(Box::new(split_line.skip(2)));
+                line_block.push(line.unwrap());
                 window_counter += 1;
                 if window_counter == windows.len() {
                     break;
                 }
             } else if pos >= windows[window_counter][0] {
-                line_block.push(Box::new(split_line.skip(2)));
+                line_block.push(line.unwrap());
             }
-            let line = lines.next();
         }
     });
 
-    Ok(filter.into_inner().unwrap())
+    Ok(Arc::try_unwrap(filter).unwrap().into_inner()?)
 }
 
 /// Compare the local ancestry inference results for two populations, a reference and a target.
