@@ -178,7 +178,7 @@ pub fn perform_comparison(
     reference: &str,
     target: &str,
     threshold: Option<f32>,
-) -> Result<()> {
+) -> Result<(Vec<String>, Vec<i32>, Vec<i32>)> {
     let ref_msp = format!("{}.msp.tsv", reference);
     let target_msp = format!("{}.msp.tsv", target);
     let ref_fb = format!("{}.fb.tsv", reference);
@@ -204,7 +204,6 @@ pub fn perform_comparison(
 
     let (windows, ref_labels, ref_indexed_samples) = process_msp(&ref_msp, &ref_indices)?;
     let (_, target_labels, target_indexed_samples) = process_msp(&target_msp, &target_indices)?;
-    let filter = process_fb(&ref_fb, &ref_indices, &windows, &ref_labels, threshold)?;
 
     let index_map: Vec<usize> = ref_indexed_samples
         .iter()
@@ -216,30 +215,54 @@ pub fn perform_comparison(
         })
         .collect();
 
-    let mut n_total = 0;
-    let mut n_shared = 0;
-    let mut n_col_total = vec![0; sample_set.len()];
-    let mut n_col_shared = vec![0; sample_set.len()];
+    let mut n_shared_by_col = vec![0; sample_set.len()];
+    let mut n_total_by_col = vec![0; sample_set.len()];
 
-    for ((ref_row, target_row), filter_row) in ref_labels
-        .into_iter()
-        .zip(target_labels.into_iter())
-        .zip(filter.into_iter())
-    {
-        for (i, &j) in (0..sample_set.len()).zip(index_map.iter()) {
-            if filter_row[i] {
-                n_col_total[i] += 1;
-                if ref_row[i] == target_row[j] {
-                    n_col_shared[i] += 1;
+    match threshold {
+        Some(_) => {
+            let filter = process_fb(&ref_fb, &ref_indices, &windows, &ref_labels, threshold)?;
+            for ((ref_row, target_row), filter_row) in ref_labels
+                .into_iter()
+                .zip(target_labels.into_iter())
+                .zip(filter.into_iter())
+            {
+                for (i, &j) in (0..sample_set.len()).zip(index_map.iter()) {
+                    if filter_row[i] {
+                        n_total_by_col[i] += 1;
+                        if ref_row[i] == target_row[j] {
+                            n_shared_by_col[i] += 1;
+                        }
+                    }
+                }
+            }
+        }
+        None => {
+            for (ref_row, target_row) in ref_labels.into_iter().zip(target_labels.into_iter()) {
+                for (i, &j) in (0..sample_set.len()).zip(index_map.iter()) {
+                    n_total_by_col[i] += 1;
+                    if ref_row[i] == target_row[j] {
+                        n_shared_by_col[i] += 1;
+                    }
                 }
             }
         }
     }
 
-    for (i, (total, shared)) in zip(n_col_total.iter(), n_col_shared.iter()).enumerate() {
+    Ok((ref_indexed_samples, n_shared_by_col, n_total_by_col))
+}
+
+pub fn display_comparison(
+    samples: Vec<String>,
+    n_shared_by_col: Vec<i32>,
+    n_total_by_col: Vec<i32>,
+) -> Result<()> {
+    let mut n_total = 0;
+    let mut n_shared = 0;
+
+    for (i, (shared, total)) in zip(n_shared_by_col.iter(), n_total_by_col.iter()).enumerate() {
         println!(
             "Sample {}: {}/{} = {} shared",
-            ref_indexed_samples[i],
+            samples[i],
             shared,
             total,
             *shared as f32 / *total as f32
@@ -264,55 +287,18 @@ mod tests {
     #[test]
     fn toy_msp() {
         let samples_path = "data/test/toy_samples.txt";
-        let ref_path = "data/test/toy_ref.msp.tsv";
-        let target_path = "data/test/toy_target.msp.tsv";
+        let ref_path = "data/test/toy_ref";
+        let target_path = "data/test/toy_target";
+        let (_, n_shared_by_col, _) =
+            perform_comparison(samples_path, ref_path, target_path, None).unwrap();
 
-        // refactor perform_comparison with threshold and fb optional and return shared
-
-        let sample_set: HashSet<String> = read_to_string(samples_path)
-            .with_context(|| format!("Failed to read {}", samples_path))
-            .unwrap()
-            .trim()
-            .split('\n')
-            // .map(|s| String::from(s))
-            .map(|s| [format!("{}.0", s), format!("{}.1", s)])
-            .flatten()
-            .collect();
-
-        let ref_indices = first_line_id_indices(ref_path, &sample_set).unwrap();
-        let target_indices = first_line_id_indices(target_path, &sample_set).unwrap();
-
-        let (_, ref_labels, ref_indexed_samples) = process_msp(ref_path, &ref_indices).unwrap();
-        let (_, target_labels, target_indexed_samples) =
-            process_msp(target_path, &target_indices).unwrap();
-
-        let index_map: Vec<usize> = ref_indexed_samples
-            .iter()
-            .map(|s1| {
-                target_indexed_samples
-                    .iter()
-                    .position(|s2| s1 == s2)
-                    .unwrap()
-            })
-            .collect();
-
-        let mut n_col_shared = vec![0; sample_set.len()];
-
-        for (ref_row, target_row) in ref_labels.into_iter().zip(target_labels.into_iter()) {
-            for (i, &j) in (0..sample_set.len()).zip(index_map.iter()) {
-                if ref_row[i] == target_row[j] {
-                    n_col_shared[i] += 1;
-                }
-            }
-        }
-
-        assert_eq!(n_col_shared[0], 7);
-        assert_eq!(n_col_shared[1], 7);
-        assert_eq!(n_col_shared[2], 5);
-        assert_eq!(n_col_shared[3], 6);
-        assert_eq!(n_col_shared[4], 0);
-        assert_eq!(n_col_shared[5], 7);
-        assert_eq!(n_col_shared[6], 4);
-        assert_eq!(n_col_shared[7], 7);
+        assert_eq!(n_shared_by_col[0], 7);
+        assert_eq!(n_shared_by_col[1], 7);
+        assert_eq!(n_shared_by_col[2], 5);
+        assert_eq!(n_shared_by_col[3], 6);
+        assert_eq!(n_shared_by_col[4], 0);
+        assert_eq!(n_shared_by_col[5], 7);
+        assert_eq!(n_shared_by_col[6], 4);
+        assert_eq!(n_shared_by_col[7], 7);
     }
 }

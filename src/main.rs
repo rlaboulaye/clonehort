@@ -27,6 +27,7 @@ struct CompareArgs {
     #[arg(short, long, required = true)]
     target: String,
     /// Posterior probability threshold for the inclusion of a locus in the comparison
+    /// If included, fb.tsv file must be available for reference
     #[arg(long)]
     threshold: Option<f32>,
 }
@@ -36,12 +37,13 @@ fn main() -> Result<()> {
 
     match &cli.command {
         Commands::Compare(args) => {
-            clonehort::perform_comparison(
+            let (samples, n_shared_by_col, n_total_by_col) = clonehort::perform_comparison(
                 &args.samples,
                 &args.reference,
                 &args.target,
                 args.threshold,
             )?;
+            clonehort::display_comparison(samples, n_shared_by_col, n_total_by_col)?;
         }
     }
 

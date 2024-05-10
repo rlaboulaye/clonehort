@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 
 mod compare;
 
-pub use compare::perform_comparison;
+pub use compare::{display_comparison, perform_comparison};
 
 pub fn read(path: &str) {
     let mut vcf = Reader::from_path(path).expect("Error opening file.");
