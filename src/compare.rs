@@ -1,10 +1,10 @@
 use anyhow::{Context, Ok, Result};
-use rayon::ThreadPoolBuilder;
 use std::collections::HashSet;
 use std::fs::{read_to_string, File};
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::iter::zip;
+use std::sync::{Arc, Mutex};
 
 fn first_line_id_indices(file: &str, sample_set: &HashSet<String>) -> Result<Vec<usize>> {
     let f = File::open(file).with_context(|| format!("Failed to read {}", file))?;
@@ -68,137 +68,92 @@ fn process_msp(
     Ok((windows, labels, indexed_samples))
 }
 
-fn process_fb(file: &str, indices: &Vec<usize>, windows: &Vec<[u32; 2]>) -> Result<Vec<Vec<bool>>> {
-    let pool = ThreadPoolBuilder::new()
-        .num_threads(num_cpus::get())
-        .build()
-        .unwrap();
+fn process_fb(
+    file: &str,
+    indices: &Vec<usize>,
+    windows: &Vec<[u32; 2]>,
+    labels: &Vec<Vec<u8>>,
+    threshold: Option<f32>,
+) -> Result<Vec<Vec<bool>>> {
+    let mut filter: Arc<Mutex<Vec<Vec<bool>>>> =
+        Arc::new(Mutex::new(vec![vec![true; indices.len()]; windows.len()]));
+
+    let index_set: HashSet<usize> = indices.iter().cloned().collect();
 
     let f = File::open(file).with_context(|| format!("Failed to read {}", file))?;
-    let mut lines = BufReader::new(f).lines().skip(2);
+    let mut lines = BufReader::new(f).lines();
 
-    Ok(vec![vec![]])
+    let n_label_types = lines
+        .next()
+        .unwrap()
+        .context("Empty file")?
+        .trim()
+        .split('\t')
+        .count()
+        - 1;
+
+    rayon::scope(|scope| {
+        let mut window_counter: usize = 0;
+        let mut line_block: Vec<Box<dyn Iterator<Item = &str> + Send>> = vec![];
+        let line = lines.skip(1).next();
+
+        while let Some(line) = line {
+            let line = line.unwrap();
+            let mut split_line = line.trim().split('\t').skip(1);
+            let pos = split_line.next().unwrap().parse::<u32>().unwrap();
+            if pos > windows[window_counter][1] {
+                scope.spawn(|_| {
+                    let row_index = window_counter;
+                    let line_block = line_block;
+                    let (prob_sums, row_count) = line_block
+                        .into_iter()
+                        .map(|line| {
+                            line.enumerate()
+                                .filter(|(i, _)| {
+                                    index_set.contains(&(i / n_label_types))
+                                        && i % n_label_types
+                                            == labels[row_index][i / n_label_types] as usize
+                                })
+                                .map(|(_, val)| val.parse::<f32>().unwrap_or(f32::MIN))
+                                .collect::<Vec<f32>>()
+                        })
+                        .fold((Vec::<f32>::new(), 0), |(prob_sums, row_count), probs| {
+                            (
+                                probs
+                                    .iter()
+                                    .zip(prob_sums.iter())
+                                    .map(|(p, s)| p + s)
+                                    .collect(),
+                                row_count + 1,
+                            )
+                        });
+                    let mut filter_matrix = filter.lock().unwrap();
+                    for (i, prob_sum) in prob_sums.iter().enumerate() {
+                        if *prob_sum / row_count as f32 >= threshold.unwrap_or(0f32) {
+                            filter_matrix[row_index][i] = true;
+                        } else {
+                            filter_matrix[row_index][i] = false;
+                        }
+                    }
+                });
+                line_block = vec![];
+                line_block.push(Box::new(split_line.skip(2)));
+                window_counter += 1;
+                if window_counter == windows.len() {
+                    break;
+                }
+            } else if pos >= windows[window_counter][0] {
+                line_block.push(Box::new(split_line.skip(2)));
+            }
+            let line = lines.next();
+        }
+    });
+
+    Ok(filter.into_inner().unwrap())
 }
 
-// fn jointly_process_msp_fb(
-//     msp_file: &str,
-//     fb_file: &str,
-//     indices: &Vec<usize>,
-//     threshold: f32,
-// ) -> Result<(Vec<Vec<[u8; 2]>>, Vec<String>)> {
-//     let index_set: HashSet<usize> = indices.iter().cloned().collect();
-//     let index_max = indices.iter().max().unwrap();
-//     let msp_f = File::open(msp_file).with_context(|| format!("Failed to read {}", msp_file))?;
-//     let fb_f = File::open(fb_file).with_context(|| format!("Failed to read {}", fb_file))?;
-//     let mut msp_lines = BufReader::new(msp_f).lines();
-//     let n_label_types = msp_lines
-//         .next()
-//         .unwrap()
-//         .context("Empty file")?
-//         .trim()
-//         .split(':')
-//         .nth(1)
-//         .unwrap()
-//         .trim()
-//         .split('\t')
-//         .count();
-//     let indexed_samples: Vec<String> = msp_lines
-//         .next()
-//         .unwrap()
-//         .context("Empty file")?
-//         .trim()
-//         .split('\t')
-//         .enumerate()
-//         .filter(|(i, _)| index_set.contains(i))
-//         .map(|(_, sample)| sample.to_string())
-//         .collect();
-//     let fb_lines = BufReader::new(fb_f).lines().skip(2);
-//     let labels: Vec<Vec<[u8; 2]>> = msp_lines
-//         .zip(fb_lines)
-//         .map(|(msp_line, fb_line)| {
-//             let msp_line = msp_line.unwrap();
-//             let fb_line = fb_line.unwrap();
-//             // Skip columns that prepend the data
-//             let split_fb_line: Vec<&str> = fb_line.trim().split('\t').skip(4).collect();
-//             msp_line
-//                 .trim()
-//                 .split('\t')
-//                 .skip(6)
-//                 .enumerate()
-//                 .take_while(|(i, _)| i <= index_max)
-//                 .filter(|(i, _)| index_set.contains(i))
-//                 .map(|(i, label)| match label.parse::<u8>() {
-//                     Ok(label) => {
-//                         return [
-//                             if split_fb_line[i * n_label_types + label as usize]
-//                                 .parse::<f32>()
-//                                 .unwrap_or(-1f32)
-//                                 >= threshold
-//                             {
-//                                 1u8
-//                             } else {
-//                                 0u8
-//                             },
-//                             label,
-//                         ];
-//                     }
-//                     Err(_) => return [0u8, 0u8],
-//                 })
-//                 .collect()
-//         })
-//         .collect();
-//     Ok((labels, indexed_samples))
-// }
-
-// fn process_fb(
-//     file: &str,
-//     indices: &Vec<usize>,
-//     labels: &Vec<Vec<u8>>,
-//     threshold: f32,
-// ) -> Result<Vec<Vec<bool>>> {
-//     let f = File::open(file).with_context(|| format!("Failed to read {}", file))?;
-//     let mut lines = BufReader::new(f).lines();
-//     let n_label_types = lines
-//         .next()
-//         .unwrap()
-//         .context("Empty file")?
-//         .trim()
-//         .split('\t')
-//         .count()
-//         - 1;
-//     fn to_fb_index(index: usize, label: u8, n_label_types: usize) -> usize {
-//         index * n_label_types + label as usize
-//     }
-//     let index_set: HashSet<usize> = indices.iter().cloned().collect();
-//     let last_label = n_label_types - 1;
-//     // let fb_index_max = to_fb_index(*indices.iter().max().unwrap(), last_label as u8, n_label_types);
-//     let fb: Vec<Vec<bool>> = lines
-//         .skip(1)
-//         .zip(labels.iter())
-//         .map(|(line, label_row)| {
-//             line.unwrap()
-//                 .trim()
-//                 .split('\t')
-//                 // Skip columns that prepend data
-//                 .skip(4)
-//                 .zip(label_row.iter())
-//                 .enumerate()
-//                 // .take_while(|(i, _)| *i <= fb_index_max)
-//                 .filter(|(i, (_, label))| {
-//                     println!("{} {} {}", i, label, (i - **label as usize));
-//                     (i + last_label - **label as usize) % n_label_types == 0
-//                         && index_set
-//                             .contains(&((i + last_label - **label as usize) / n_label_types))
-//                 })
-//                 .map(|(_, (val, _))| val.parse::<f32>().unwrap_or(-1f32) >= threshold)
-//                 .collect()
-//         })
-//         .collect();
-//     Ok(fb)
-// }
-
 /// Compare the local ancestry inference results for two populations, a reference and a target.
-/// Requires the following files: <samples>, <reference>.msp.tsv, <target>.msp.tsv, <reference>.fb.tsv, <target>.fb.tsv.
+/// Requires the following files: <samples>, <reference>.msp.tsv, <target>.msp.tsv, <reference>.fb.tsv.
 ///
 /// # Arguments
 ///
@@ -235,15 +190,9 @@ pub fn perform_comparison(
         ));
     }
 
-    let (ref_labels, ref_indexed_samples) =
-        jointly_process_msp_fb(&ref_msp, &ref_fb, &ref_indices, threshold.unwrap_or(0f32))?;
+    let (windows, ref_labels, ref_indexed_samples) = process_msp(&ref_msp, &ref_indices)?;
     let (_, target_labels, target_indexed_samples) = process_msp(&target_msp, &target_indices)?;
-    // let ref_filter = process_fb(
-    //     &ref_fb,
-    //     &ref_indices,
-    //     &ref_labels,
-    //     threshold.unwrap_or(0f32),
-    // )?;
+    let filter = process_fb(&ref_fb, &ref_indices, &windows, &ref_labels, threshold)?;
 
     let index_map: Vec<usize> = ref_indexed_samples
         .iter()
@@ -260,51 +209,20 @@ pub fn perform_comparison(
     let mut n_col_total = vec![0; sample_set.len()];
     let mut n_col_shared = vec![0; sample_set.len()];
 
-    // //
-    // println!(
-    //     "ref pos: {}",
-    //     ref_indexed_samples
-    //         .iter()
-    //         .position(|s| s == "HG01565.1")
-    //         .unwrap()
-    // );
-    // println!(
-    //     "target pos: {}",
-    //     index_map[ref_indexed_samples
-    //         .iter()
-    //         .position(|s| s == "HG01565.1")
-    //         .unwrap()]
-    // );
-    // println!("{}", ref_labels[0][10][0]);
-    // println!("{}", ref_labels[0][10][1]);
-    // println!("{}", target_labels[0][6]);
-    // //
-
-    for (ref_row, target_row) in ref_labels.into_iter().zip(target_labels.into_iter()) {
+    for ((ref_row, target_row), filter_row) in ref_labels
+        .into_iter()
+        .zip(target_labels.into_iter())
+        .zip(filter.into_iter())
+    {
         for (i, &j) in (0..sample_set.len()).zip(index_map.iter()) {
-            if ref_row[i][0] == 1 {
+            if filter_row[i] {
                 n_col_total[i] += 1;
-                if ref_row[i][1] == target_row[j] {
+                if ref_row[i] == target_row[j] {
                     n_col_shared[i] += 1;
                 }
             }
         }
     }
-
-    // for ((ref_row, target_row), filter_row) in ref_labels
-    //     .into_iter()
-    //     .zip(target_labels.into_iter())
-    //     .zip(ref_filter.into_iter())
-    // {
-    //     for (i, &j) in (0..sample_set.len()).zip(index_map.iter()) {
-    //         if filter_row[i] {
-    //             n_col_total[i] += 1;
-    //             if ref_row[i] == target_row[j] {
-    //                 n_col_shared[i] += 1;
-    //             }
-    //         }
-    //     }
-    // }
 
     for (i, (total, shared)) in zip(n_col_total.iter(), n_col_shared.iter()).enumerate() {
         println!(
@@ -323,10 +241,6 @@ pub fn perform_comparison(
         n_total,
         n_shared as f32 / n_total as f32
     );
-
-    // for (i, &j) in (0..sample_set.len()).zip(index_map.iter()) {
-    //     println!("{}: {}", ref_indexed_samples[i], target_indexed_samples[j]);
-    // }
 
     Ok(())
 }
