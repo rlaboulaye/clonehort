@@ -130,16 +130,19 @@ fn process_fb(
                                 .map(|(_, val)| val.parse::<f32>().unwrap_or(f32::MIN))
                                 .collect::<Vec<f32>>()
                         })
-                        .fold((Vec::<f32>::new(), 0), |(prob_sums, row_count), probs| {
-                            (
-                                probs
-                                    .iter()
-                                    .zip(prob_sums.iter())
-                                    .map(|(p, s)| p + s)
-                                    .collect(),
-                                row_count + 1,
-                            )
-                        });
+                        .fold(
+                            (vec![0f32; index_set.len()], 0),
+                            |(prob_sums, row_count), probs| {
+                                (
+                                    probs
+                                        .iter()
+                                        .zip(prob_sums.iter())
+                                        .map(|(p, s)| p + s)
+                                        .collect(),
+                                    row_count + 1,
+                                )
+                            },
+                        );
                     let mut filter_matrix = filter.lock().unwrap();
                     for (i, prob_sum) in prob_sums.iter().enumerate() {
                         if *prob_sum / row_count as f32 >= threshold.unwrap_or(0f32) {
@@ -319,12 +322,31 @@ mod tests {
             perform_comparison(samples_path, ref_path, target_path, threshold).unwrap();
 
         assert_eq!(n_shared_by_col[0], 7);
-        assert_eq!(n_shared_by_col[1], 7);
+        assert_eq!(n_shared_by_col[1], 6);
         assert_eq!(n_shared_by_col[2], 5);
         assert_eq!(n_shared_by_col[3], 6);
         assert_eq!(n_shared_by_col[4], 0);
         assert_eq!(n_shared_by_col[5], 7);
         assert_eq!(n_shared_by_col[6], 4);
-        assert_eq!(n_shared_by_col[7], 7);
+        assert_eq!(n_shared_by_col[7], 5);
+    }
+
+    #[test]
+    fn toy_fb_point9() {
+        let samples_path = "data/test/toy_samples.txt";
+        let ref_path = "data/test/toy_ref";
+        let target_path = "data/test/toy_target";
+        let threshold = Some(0.9);
+        let (_, n_shared_by_col, _) =
+            perform_comparison(samples_path, ref_path, target_path, threshold).unwrap();
+
+        assert_eq!(n_shared_by_col[0], 7);
+        assert_eq!(n_shared_by_col[1], 6);
+        assert_eq!(n_shared_by_col[2], 5);
+        assert_eq!(n_shared_by_col[3], 6);
+        assert_eq!(n_shared_by_col[4], 0);
+        assert_eq!(n_shared_by_col[5], 4);
+        assert_eq!(n_shared_by_col[6], 4);
+        assert_eq!(n_shared_by_col[7], 5);
     }
 }
