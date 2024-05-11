@@ -173,6 +173,13 @@ fn process_fb(
 /// * `reference` - Path and prefix of the reference population.
 /// * `target` - Path and prefix of the target population.
 /// * `threshold` - Posterior probability threshold for the inclusion of a locus in the comparison.
+///
+/// # Returns
+///
+/// A tuple containing:
+/// * A vector of sample names.
+/// * A vector of the number of shared loci for each sample.
+/// * A vector of the total number of loci for each sample.
 pub fn perform_comparison(
     samples: &str,
     reference: &str,
@@ -291,6 +298,25 @@ mod tests {
         let target_path = "data/test/toy_target";
         let (_, n_shared_by_col, _) =
             perform_comparison(samples_path, ref_path, target_path, None).unwrap();
+
+        assert_eq!(n_shared_by_col[0], 7);
+        assert_eq!(n_shared_by_col[1], 7);
+        assert_eq!(n_shared_by_col[2], 5);
+        assert_eq!(n_shared_by_col[3], 6);
+        assert_eq!(n_shared_by_col[4], 0);
+        assert_eq!(n_shared_by_col[5], 7);
+        assert_eq!(n_shared_by_col[6], 4);
+        assert_eq!(n_shared_by_col[7], 7);
+    }
+
+    #[test]
+    fn toy_fb_point8() {
+        let samples_path = "data/test/toy_samples.txt";
+        let ref_path = "data/test/toy_ref";
+        let target_path = "data/test/toy_target";
+        let threshold = Some(0.8);
+        let (_, n_shared_by_col, _) =
+            perform_comparison(samples_path, ref_path, target_path, threshold).unwrap();
 
         assert_eq!(n_shared_by_col[0], 7);
         assert_eq!(n_shared_by_col[1], 7);
