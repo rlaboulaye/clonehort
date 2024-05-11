@@ -1,5 +1,5 @@
 use anyhow::{Context, Ok, Result};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::{read_to_string, File};
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -78,7 +78,12 @@ fn process_fb(
     let filter: Arc<Mutex<Vec<Vec<bool>>>> =
         Arc::new(Mutex::new(vec![vec![true; indices.len()]; windows.len()]));
 
-    let index_set: HashSet<usize> = indices.iter().cloned().collect();
+    let index_map: HashMap<usize, usize> = indices
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(i, j)| (j, i))
+        .collect();
 
     let f = File::open(file).with_context(|| format!("Failed to read {}", file))?;
     let mut lines = BufReader::new(f).lines();
@@ -99,7 +104,7 @@ fn process_fb(
         let mut line_block: Vec<String> = vec![];
 
         // Shadowing
-        let index_set = &index_set;
+        let index_map = &index_map;
         let filter = &filter;
 
         while let Some(line) = lines.next() {
@@ -123,15 +128,17 @@ fn process_fb(
                                 .skip(4)
                                 .enumerate()
                                 .filter(|(i, _)| {
-                                    index_set.contains(&(i / n_label_types))
+                                    index_map.contains_key(&(i / n_label_types))
                                         && i % n_label_types
-                                            == labels[window_counter][i / n_label_types] as usize
+                                            == labels[window_counter]
+                                                [*index_map.get(&(i / n_label_types)).unwrap()]
+                                                as usize
                                 })
                                 .map(|(_, val)| val.parse::<f32>().unwrap_or(f32::MIN))
                                 .collect::<Vec<f32>>()
                         })
                         .fold(
-                            (vec![0f32; index_set.len()], 0),
+                            (vec![0f32; index_map.len()], 0),
                             |(prob_sums, row_count), probs| {
                                 (
                                     probs
