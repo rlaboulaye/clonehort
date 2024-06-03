@@ -1,17 +1,12 @@
+use anyhow::{Ok, Result};
 use rust_htslib::bcf::{Read, Reader};
 use std::convert::TryFrom;
 
-mod compare;
-pub use compare::{display_comparison, perform_comparison};
-
-mod prepare;
-pub use prepare::process_variant_input;
-
-pub fn read(path: &str) {
+fn read_vcf(path: &str) -> Result<()> {
+    // let path = &"test/test_string.vcf";
     let mut vcf = Reader::from_path(path).expect("Error opening file.");
     // iterate through each row of the vcf body.
     for (_i, record_result) in vcf.records().enumerate() {
-        // let mut record = record_result.expect("Fail to read record");
         let record = record_result.expect("Fail to read record");
         let mut s = String::new();
         for allele in record.alleles() {
@@ -42,15 +37,9 @@ pub fn read(path: &str) {
             }
         }
     }
+    Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    // use super::*;
-
-    #[test]
-    fn it_works() {
-        //        read();
-        //        assert_eq!(result, Ok(()));
-    }
+pub fn process_variant_input(vcf_path: &str) -> Result<()> {
+    read_vcf(vcf_path)
 }
