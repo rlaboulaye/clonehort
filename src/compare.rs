@@ -196,9 +196,9 @@ pub fn perform_comparison(
     target: &str,
     threshold: Option<f32>,
 ) -> Result<(Vec<String>, Vec<i32>, Vec<i32>)> {
-    let ref_msp = format!("{}.msp.tsv", reference);
-    let target_msp = format!("{}.msp.tsv", target);
-    let ref_fb = format!("{}.fb.tsv", reference);
+    let ref_msp = format!("{}.msp", reference);
+    let target_msp = format!("{}.msp", target);
+    let ref_fb = format!("{}.fb", reference);
 
     // Read the samples file
     let sample_set: HashSet<String> = read_to_string(samples)
@@ -303,9 +303,9 @@ mod tests {
 
     #[test]
     fn toy_msp() {
-        let samples_path = "data/test/toy_samples.txt";
-        let ref_path = "data/test/toy_ref";
-        let target_path = "data/test/toy_target";
+        let samples_path = "data/test/lai/toy_samples.txt";
+        let ref_path = "data/test/lai/toy_ref";
+        let target_path = "data/test/lai/toy_target";
         let (_, n_shared_by_col, _) =
             perform_comparison(samples_path, ref_path, target_path, None).unwrap();
 
@@ -321,9 +321,9 @@ mod tests {
 
     #[test]
     fn toy_fb_point8() {
-        let samples_path = "data/test/toy_samples.txt";
-        let ref_path = "data/test/toy_ref";
-        let target_path = "data/test/toy_target";
+        let samples_path = "data/test/lai/toy_samples.txt";
+        let ref_path = "data/test/lai/toy_ref";
+        let target_path = "data/test/lai/toy_target";
         let threshold = Some(0.8);
         let (_, n_shared_by_col, _) =
             perform_comparison(samples_path, ref_path, target_path, threshold).unwrap();
@@ -340,9 +340,9 @@ mod tests {
 
     #[test]
     fn toy_fb_point9() {
-        let samples_path = "data/test/toy_samples.txt";
-        let ref_path = "data/test/toy_ref";
-        let target_path = "data/test/toy_target";
+        let samples_path = "data/test/lai/toy_samples.txt";
+        let ref_path = "data/test/lai/toy_ref";
+        let target_path = "data/test/lai/toy_target";
         let threshold = Some(0.9);
         let (_, n_shared_by_col, _) =
             perform_comparison(samples_path, ref_path, target_path, threshold).unwrap();
