@@ -11,8 +11,17 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Prepares vcf files for training and analysis
+    Prepare(PrepareArgs),
     /// Compares two populations
     Compare(CompareArgs),
+}
+
+#[derive(Args)]
+struct PrepareArgs {
+    /// Path to vcf or bcf file
+    #[arg(short, long, required = true)]
+    vcf: String,
 }
 
 #[derive(Args)]
@@ -36,6 +45,9 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
+        Commands::Prepare(args) => {
+            clonehort::process_variant_input(&args.vcf)?;
+        }
         Commands::Compare(args) => {
             let (samples, n_shared_by_col, n_total_by_col) = clonehort::perform_comparison(
                 &args.samples,
