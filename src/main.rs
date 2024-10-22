@@ -70,6 +70,7 @@ fn main() -> Result<()> {
     //let path = String::from("/media/storage/1000_genomes/GRCh38/variants/chr20/mxl.chr20.GRCh38.vcf.gz");
 
     // clonehort::read(&path);
+    //
 
     Ok(())
 }

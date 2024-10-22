@@ -40,6 +40,7 @@ fn read_vcf(path: &str) -> Result<()> {
     Ok(())
 }
 
+// Process
 pub fn process_variant_input(vcf_path: &str) -> Result<()> {
     read_vcf(vcf_path)
 }
